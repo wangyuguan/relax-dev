@@ -212,7 +212,8 @@ def _provenance(env: dict[str, str]) -> dict[str, Any]:
                 "rf=pathlib.Path(recovar.__file__).resolve();"
                 "jf=pathlib.Path(jax.__file__).resolve();"
                 "assert str(xf).startswith(str(repo) + '/'), xf;"
-                "assert '.pixi/envs/default/' in str(jf), jf;"
+                "pixi=(repo/'.pixi/envs/default').resolve();"
+                "assert jf.is_relative_to(pixi), jf;"
                 "print(json.dumps({'relax_file':str(xf),'recovar_file':str(rf),'jax_file':str(jf)}))"
             ),
         ),

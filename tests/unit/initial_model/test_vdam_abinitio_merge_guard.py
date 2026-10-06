@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
+
+import pytest
 
 from relax.diagnostics.gt_metrics import (
     DEFAULT_GT_ALIGN_HEALPIX_ORDER,
@@ -811,6 +814,36 @@ def test_merge_guard_dry_run_writes_reproducibility_ledger(tmp_path):
     stored = json.loads(summary_path.read_text())
     assert stored["git"]["commit"]
     assert stored["commands"][0]["skipped"] is True
+
+
+@pytest.mark.parametrize("outside_environment", [False, True])
+def test_merge_guard_provenance_resolves_the_checkouts_environment(tmp_path, monkeypatch, outside_environment):
+    """A relocated Pixi environment is valid; the same directory name elsewhere is not."""
+
+    from scripts import run_vdam_abinitio_merge_guard as guard
+
+    repo = tmp_path / "checkout"
+    (repo / "relax").mkdir(parents=True)
+    (repo / "relax/__init__.py").write_text("")
+    relocated = tmp_path / "scratch/relocated-environment"
+    relocated.mkdir(parents=True)
+    environment_link = repo / ".pixi/envs/default"
+    environment_link.parent.mkdir(parents=True)
+    environment_link.symlink_to(relocated, target_is_directory=True)
+    imported_environment = tmp_path / "other/.pixi/envs/default" if outside_environment else relocated
+    site_packages = imported_environment / "lib/python3.11/site-packages"
+    for package in ("jax", "recovar"):
+        (site_packages / package).mkdir(parents=True)
+        (site_packages / package / "__init__.py").write_text("")
+    monkeypatch.setattr(guard, "REPO_ROOT", repo)
+    env = dict(os.environ, PYTHONPATH=str(site_packages), PYTHONNOUSERSITE="1")
+    provenance = guard._provenance(env)
+    assert provenance["ok"] is (not outside_environment), provenance
+    if outside_environment:
+        assert str((site_packages / "jax/__init__.py").resolve()) in provenance["output"]
+    else:
+        assert provenance["relax_file"] == str((repo / "relax/__init__.py").resolve())
+        assert provenance["jax_file"] == str((site_packages / "jax/__init__.py").resolve())
 
 
 def test_merge_guard_dry_run_records_a_node_without_nvidia_smi(tmp_path, monkeypatch):
